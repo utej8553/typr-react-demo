@@ -34,7 +34,7 @@ export default function Lobby() {
           },
         });
 
-        console.log("Current Page user ", resp.data.username);
+        console.log("Current Page user:", resp.data.username);
         setUsername(resp.data.username);
       } catch (err) {
         console.error("Error fetching users:", err);
@@ -58,59 +58,46 @@ export default function Lobby() {
   useEffect(() => {
     console.log("Setting up socket listeners for room:", roomCode);
 
-    // Socket event listeners
-    const handleUserReady = (userIndex) => {
-      console.log("User ready event received:", userIndex);
-      setUsers((prevUsers) =>
-        prevUsers.map((user, index) =>
-          index === userIndex ? { ...user, ready: !user.ready } : user
-        )
-      );
-    };
-
     const handleUserListUpdated = (updatedUsers) => {
       console.log("User list updated event received:", updatedUsers);
       setUsers(updatedUsers);
-      // Redirect if all users are ready
-      if (updatedUsers.length > 0 && updatedUsers.every((user) => user.ready)) {
-        toast.success("All users ready! Starting game...");
-        navigate(`/${roomCode}/game`);
+      
+      // Update local ready state if our status changed on server
+      const me = updatedUsers.find(u => u.username === username);
+      if (me) {
+        setReady(me.ready);
       }
     };
 
+    const handleStartCountdown = () => {
+      toast.success("Game starting!");
+      navigate(`/${roomCode}/game`);
+    };
+
+    const handlePlayerLeft = (leftUsername) => {
+      toast.error(`${leftUsername} left the room`);
+    };
+
     socket.on("user-list-updated", handleUserListUpdated);
+    socket.on("start-countdown", handleStartCountdown);
+    socket.on("player-left", handlePlayerLeft);
 
     // Cleanup
     return () => {
       console.log("Cleaning up socket listeners");
-      socket.off("user-ready", handleUserReady);
       socket.off("user-list-updated", handleUserListUpdated);
+      socket.off("start-countdown", handleStartCountdown);
+      socket.off("player-left", handlePlayerLeft);
     };
-  }, [roomCode, navigate]);
+  }, [roomCode, navigate, username]);
 
-  const allReady = () => {
-    if (users.length === 0) return false;
-    return users.every((user) => user.ready);
-  };
   const toggleUserReady = () => {
-    setUsers((prevUsers) => {
-      const updatedUsers = prevUsers.map((user) =>
-        user.username === username ? { ...user, ready: !user.ready } : user
-      );
+    const updatedUsers = users.map((user) =>
+      user.username === username ? { ...user, ready: !user.ready } : user
+    );
 
-      // Emit after updating
-      socket.emit("send-user-details", updatedUsers, roomCode);
-      return updatedUsers;
-    });
-
-    setReady((prev) => !prev);
-
-    setTimeout(() => {
-      if (allReady()) {
-        toast.success("All users ready! Starting game...");
-        navigate(`/${roomCode}/game`);
-      }
-    }, 100);
+    // Emit updated details to server
+    socket.emit("send-user-details", updatedUsers, roomCode);
   };
 
   if (loading)
@@ -128,48 +115,45 @@ export default function Lobby() {
 
   return (
     <div className="container">
-      <h1>Lobby — Room: {roomCode}</h1>
-      <h2>Players ({users.length})</h2>
-      <div className="user-list">
-        {users.length === 0 ? (
-          <p className="status muted">No users in the lobby yet...</p>
-        ) : (
-          users.map((user, index) => (
-            <div key={index} className="user-item">
-              <span
-                style={{
-                  color:
-                    user.username === username ? "var(--accent)" : "inherit",
-                }}
-              >
-                {user.username}
-                {user.username === username && " (YOU)"}
-              </span>
-              <span
-                className={`ready-badge ${user.ready ? "ready" : "not-ready"}`}
-              >
-                {user.ready ? "Ready" : "Not Ready"}
-              </span>
-            </div>
-          ))
+      <div className="lobby-card card-elevated">
+        <h1>Lobby — Room: {roomCode}</h1>
+        <h2>Players ({users.length})</h2>
+        <div className="user-list">
+          {users.length === 0 ? (
+            <p className="status muted">No users in the lobby yet...</p>
+          ) : (
+            users.map((user, index) => (
+              <div key={index} className="user-item">
+                <span
+                  style={{
+                    color:
+                      user.username === username ? "var(--accent)" : "inherit",
+                    fontWeight: user.username === username ? "bold" : "normal"
+                  }}
+                >
+                  {user.username}
+                  {user.username === username && " (YOU)"}
+                </span>
+                <span
+                  className={`ready-badge ${user.ready ? "ready" : "not-ready"}`}
+                >
+                  {user.ready ? "Ready" : "Not Ready"}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+
+        {users.length > 0 && (
+          <button
+            className="btn"
+            onClick={toggleUserReady}
+            style={{ marginTop: "1.5rem", width: "100%" }}
+          >
+            {ready ? "Set Not Ready" : "Set Ready"}
+          </button>
         )}
       </div>
-
-      {users.length > 0 && (
-        <button
-          className="btn"
-          onClick={toggleUserReady}
-          style={{ marginTop: "1rem" }}
-        >
-          {ready ? "Set Not Ready" : "Set Ready"}
-        </button>
-      )}
-
-      {allReady() && users.length > 0 && (
-        <p className="status success" style={{ marginTop: "1rem" }}>
-          All users are ready!
-        </p>
-      )}
     </div>
   );
 }

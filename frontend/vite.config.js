@@ -9,7 +9,7 @@ export default defineConfig({
     port: 3000, // default Vite port
     proxy: {
       "/api": {
-        target: "http://localhost:4000", // your Express backend
+        target: "http://localhost:5000", // your Express backend
         changeOrigin: true,
         secure: false,
         ws: true,

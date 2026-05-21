@@ -6,20 +6,22 @@ const app = express();
 const http = require("http");
 const server = http.createServer(app);
 const { Server } = require("socket.io");
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 const path = require("path");
+
 // MongoDB connection
 const MONGODB_URI =
   process.env.MONGODB_URI || "mongodb://localhost:27017/typeracer";
 
 mongoose
-  .connect(MONGODB_URI)
+  .connect(MONGODB_URI, {
+    serverSelectionTimeoutMS: 2000, // Fail fast if no local MongoDB is running
+  })
   .then(() => {
     console.log("Connected to MongoDB successfully");
   })
   .catch((error) => {
-    console.error("MongoDB connection error:", error);
-    process.exit(1);
+    console.warn("MongoDB connection failed. Falling back to local in-memory store for development.");
   });
 
 // Handle MongoDB connection events
@@ -28,6 +30,10 @@ mongoose.connection.on("disconnected", () => {
 });
 
 mongoose.connection.on("error", (error) => {
+  // Suppress verbose network/connection errors in the console when offline or using fallback
+  if (mongoose.connection.readyState !== 1) {
+    return;
+  }
   console.error("MongoDB error:", error);
 });
 
@@ -37,10 +43,10 @@ app.use(express.json());
 
 const io = new Server(server, {
   path: "/api/ws",
-  // cors: {
-  //   origin: "*",
-  //   methods: ["GET", "POST", "PUT", "DELETE"],
-  // },
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"],
+  },
 });
 
 // Make io available to routes
@@ -68,15 +74,163 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("disconnect", () => {
+  socket.on("disconnect", async () => {
     console.log("User disconnected:", socket.id);
-  });
-  socket.on("send-user-details", (users, roomCode) => {
-    io.to(roomCode).emit("user-list-updated", users);
+    try {
+      const room = await Room.findOne({ "users.socketId": socket.id });
+      if (room) {
+        const disconnectedUser = room.users.find(u => u.socketId === socket.id);
+        const username = disconnectedUser ? disconnectedUser.username : "";
+        
+        room.users = room.users.filter(u => u.socketId !== socket.id);
+        
+        if (room.users.length === 0) {
+          await Room.deleteOne({ roomCode: room.roomCode });
+          console.log(`Room ${room.roomCode} deleted as it became empty.`);
+        } else {
+          await room.save();
+          console.log(`User ${username} removed from Room ${room.roomCode}`);
+
+          // Emit updated list
+          const usersList = room.users.map((u) => ({
+            username: u.username,
+            ready: u.ready,
+          }));
+          io.to(room.roomCode).emit("user-list-updated", usersList);
+
+          if (username) {
+            io.to(room.roomCode).emit("player-left", username);
+          }
+
+          // If the game was running, check if remaining users are all finished
+          if (room.status === 'game') {
+            const allFinished = room.users.every((u) => u.finished);
+            if (allFinished) {
+              room.status = 'results';
+              await room.save();
+              io.to(room.roomCode).emit("game-over", room.results);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error("disconnect cleanup error:", e);
+    }
   });
 
-  socket.on("game-details", (newUsers, roomCode) => {
-    socket.to(roomCode).emit("recieve-game-details", newUsers);
+  socket.on("send-user-details", async (usersList, roomCode) => {
+    try {
+      const room = await Room.findOne({ roomCode });
+      if (room) {
+        usersList.forEach((u) => {
+          const roomUser = room.users.find((ru) => ru.username === u.username);
+          if (roomUser) {
+            roomUser.ready = u.ready;
+          }
+        });
+        await room.save();
+        io.to(roomCode).emit("user-list-updated", usersList);
+
+        const allReady = room.users.length > 0 && room.users.every((u) => u.ready);
+        if (allReady) {
+          room.status = 'game';
+          await room.save();
+          io.to(roomCode).emit("start-countdown");
+        }
+      }
+    } catch (e) {
+      console.error("send-user-details error:", e);
+    }
+  });
+
+  socket.on("game-details", async (newUsers, roomCode) => {
+    try {
+      socket.to(roomCode).emit("recieve-game-details", newUsers);
+      const room = await Room.findOne({ roomCode });
+      if (room) {
+        newUsers.forEach((nu) => {
+          const u = room.users.find((ru) => ru.username === nu.username);
+          if (u) {
+            u.completion = nu.completion;
+            u.accuracy = nu.accuracy;
+            u.wpm = nu.wpm;
+          }
+        });
+        await room.save();
+      }
+    } catch (e) {
+      console.error("game-details error:", e);
+    }
+  });
+
+  socket.on("submit-results", async (payload) => {
+    try {
+      const { username, roomCode, wpm, accuracy } = payload || {};
+      if (!roomCode || !username) return;
+
+      const room = await Room.findOne({ roomCode });
+      if (room) {
+        const user = room.users.find((u) => u.username === username);
+        if (user) {
+          user.finished = true;
+          user.wpm = wpm;
+          user.accuracy = accuracy;
+          user.completion = 100;
+        }
+
+        const exists = room.results.some((r) => r.username === username);
+        if (!exists) {
+          room.results.push({ username, wpm, accuracy });
+        }
+
+        await room.save();
+
+        const allFinished = room.users.every((u) => u.finished);
+        if (allFinished) {
+          room.status = 'results';
+          await room.save();
+          io.to(roomCode).emit("game-over", room.results);
+        } else {
+          const updatedUsers = room.users.map((u) => ({
+            username: u.username,
+            completion: u.completion,
+            accuracy: u.accuracy,
+            wpm: u.wpm,
+            finished: u.finished
+          }));
+          io.to(roomCode).emit("recieve-game-details", updatedUsers);
+        }
+      }
+    } catch (e) {
+      console.error("submit-results error:", e);
+    }
+  });
+
+  socket.on("play-again", async (roomCode) => {
+    try {
+      const room = await Room.findOne({ roomCode });
+      if (room) {
+        room.status = 'lobby';
+        room.results = [];
+        
+        room.users.forEach((u) => {
+          u.ready = false;
+          u.completion = 0;
+          u.accuracy = 100;
+          u.wpm = 0;
+          u.finished = false;
+        });
+
+        const { generateParagraphAPI } = require("./helper");
+        const newPara = await generateParagraphAPI(30);
+        room.paragraph = newPara;
+
+        await room.save();
+        io.to(roomCode).emit("redirect-to-lobby");
+      }
+    } catch (e) {
+      console.error("play-again error:", e);
+    }
   });
 
   socket.on("user-completed", (payload) => {
@@ -103,10 +257,9 @@ app.get("/api/getUser", async (req, res) => {
       return res.status(404).json({ error: "Room not found" });
     }
 
-    const userIndex = room.sockets.indexOf(socketID);
-    if (userIndex !== -1) {
-      const username = room.usernames[userIndex];
-      return res.status(200).json({ username });
+    const user = room.users.find(u => u.socketId === socketID);
+    if (user) {
+      return res.status(200).json({ username: user.username });
     }
 
     return res.status(404).json({ error: "User not found in room" });
@@ -123,3 +276,4 @@ server.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
   console.log(path.join(__dirname, "../frontend/dist"));
 });
+

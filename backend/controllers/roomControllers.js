@@ -20,9 +20,9 @@ const getAllUsers = async (req, res) => {
       });
     }
 
-    const users = room.usernames.map((username) => ({
-      username,
-      ready: false, // Default ready state
+    const users = room.users.map((u) => ({
+      username: u.username,
+      ready: u.ready,
     }));
 
     return res.status(200).json({
@@ -60,9 +60,13 @@ const roomDetails = async (req, res) => {
     }
 
     const paragraph = room.paragraph;
-    const users = room.usernames.map((username) => ({
-      username,
-      ready: false,
+    const users = room.users.map((u) => ({
+      username: u.username,
+      ready: u.ready,
+      completion: u.completion,
+      accuracy: u.accuracy,
+      wpm: u.wpm,
+      finished: u.finished
     }));
 
     return res.status(200).json({
@@ -71,6 +75,8 @@ const roomDetails = async (req, res) => {
       paragraph,
       userCount: users.length,
       roomCode: room.roomCode,
+      status: room.status,
+      results: room.results,
     });
   } catch (error) {
     console.error("Error in roomDetails:", error);
@@ -85,3 +91,4 @@ module.exports = {
   getAllUsers,
   roomDetails,
 };
+

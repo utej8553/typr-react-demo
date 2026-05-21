@@ -29,7 +29,7 @@ const joinRoom = async (req, res) => {
     }
 
     // Check if username already exists in the room
-    const usernameExists = room.usernames.includes(username);
+    const usernameExists = room.users.some((u) => u.username === username);
     if (usernameExists) {
       return res.status(409).json({
         success: false,
@@ -38,14 +38,20 @@ const joinRoom = async (req, res) => {
     }
 
     // Add user to room
-    room.usernames.push(username);
-    room.sockets.push(socketID);
+    room.users.push({
+      username,
+      socketId: socketID,
+      ready: false,
+      completion: 0,
+      accuracy: 100,
+      wpm: 0,
+      finished: false
+    });
     await room.save();
 
     console.log("Room after adding user:", {
       roomCode,
-      usernames: room.usernames,
-      sockets: room.sockets,
+      users: room.users,
     });
 
     // Get socket.io instance from app
@@ -58,17 +64,12 @@ const joinRoom = async (req, res) => {
         console.log(`Socket ${socketID} joined room ${roomCode}`);
 
         // Emit updated user list to all clients in the room
-        const users = room.usernames.map((u) => ({
-          username: u,
-          ready: false,
+        const users = room.users.map((u) => ({
+          username: u.username,
+          ready: u.ready,
         }));
 
         console.log("Emitting user-list-updated to room:", roomCode, users);
-        console.log(
-          "Sockets in room:",
-          Array.from(io.sockets.adapter.rooms.get(roomCode) || [])
-        );
-
         io.to(roomCode).emit("user-list-updated", users);
       } else {
         console.error(`Socket ${socketID} not found in io.sockets.sockets`);
@@ -82,8 +83,8 @@ const joinRoom = async (req, res) => {
       message: `User: ${username} successfully joined room ${roomCode}`,
       room: {
         roomCode: room.roomCode,
-        usernames: room.usernames,
-        userCount: room.usernames.length,
+        usernames: room.users.map(u => u.username),
+        userCount: room.users.length,
       },
     });
   } catch (error) {
@@ -131,18 +132,25 @@ const createRoom = async (req, res) => {
     // Create new room
     const newRoom = new Room({
       roomCode: roomCode,
-      usernames: [username],
-      sockets: [socketID],
+      users: [{
+        username,
+        socketId: socketID,
+        ready: false,
+        completion: 0,
+        accuracy: 100,
+        wpm: 0,
+        finished: false
+      }],
       paragraph: para,
       results: [],
+      status: "lobby"
     });
 
     await newRoom.save();
 
     console.log("Room created:", {
       roomCode,
-      usernames: newRoom.usernames,
-      sockets: newRoom.sockets,
+      users: newRoom.users,
     });
 
     // Get socket.io instance from app
@@ -155,9 +163,9 @@ const createRoom = async (req, res) => {
         console.log(`Socket ${socketID} joined room ${roomCode}`);
 
         // Emit initial user list to the room
-        const users = newRoom.usernames.map((u) => ({
-          username: u,
-          ready: false,
+        const users = newRoom.users.map((u) => ({
+          username: u.username,
+          ready: u.ready,
         }));
 
         console.log("Emitting user-list-updated to room:", roomCode, users);
@@ -174,8 +182,8 @@ const createRoom = async (req, res) => {
       message: `Room ${roomCode} created successfully`,
       room: {
         roomCode: newRoom.roomCode,
-        usernames: newRoom.usernames,
-        userCount: newRoom.usernames.length,
+        usernames: newRoom.users.map(u => u.username),
+        userCount: newRoom.users.length,
       },
     });
   } catch (error) {
@@ -191,3 +199,4 @@ module.exports = {
   joinRoom,
   createRoom,
 };
+
