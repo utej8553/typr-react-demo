@@ -8,6 +8,8 @@ pipeline {
 
     ECR_REGISTRY = '237024526028.dkr.ecr.us-east-1.amazonaws.com'
 
+    APP_SERVER_IP = '54.237.35.24'
+
     FRONTEND_ECR = '237024526028.dkr.ecr.us-east-1.amazonaws.com/typr-frontend'
 
     BACKEND_ECR = '237024526028.dkr.ecr.us-east-1.amazonaws.com/typr-backend'
@@ -101,5 +103,30 @@ pipeline {
         '''
       }
     }
+
+    stage('Deploy to App server'){
+  steps {
+    sh '''
+    ssh -o StrictHostKeyChecking=no \
+    -i /home/ubuntu/typr-react-demo/terraform/demo-key.pem \
+    ubuntu@$APP_SERVER_IP << EOF
+
+    cd app
+
+    aws ecr get-login-password --region $AWS_REGION | \
+    docker login --username AWS --password-stdin 237024526028.dkr.ecr.us-east-1.amazonaws.com
+
+    docker-compose pull
+
+    docker-compose down
+
+    docker-compose up -d
+
+    docker ps
+
+    EOF
+    '''
+  }
+}
   }
 }
