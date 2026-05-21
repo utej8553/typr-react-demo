@@ -19,4 +19,5 @@ pipeline {
         sh 'docker build -t typr-react-demo/backend .'
       }
     }
+  }
 }
