@@ -29,7 +29,7 @@ export default function AuthPage() {
           return;
         }
         await login(formData.email, formData.password);
-        toast.success("Welcome back!");
+        toast.success("Hi!, Welcome back!");
         navigate("/");
       } else {
         if (!formData.username || !formData.email || !formData.password) {
