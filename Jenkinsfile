@@ -108,7 +108,7 @@ pipeline {
   steps {
     sh '''
     ssh -o StrictHostKeyChecking=no \
-    -i /home/ubuntu/typr-react-demo/terraform/demo-key.pem \
+    -i /var/lib/jenkins/demo-key.pem \
     ubuntu@$APP_SERVER_IP << EOF
 
     cd app
