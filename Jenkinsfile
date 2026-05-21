@@ -3,6 +3,14 @@ pipeline {
 
   environment {
     SCANNER_HOME = tool 'sonar-scanner'
+
+    AWS_REGION = 'us-east-1'
+
+    ECR_REGISTRY = '237024526028.dkr.ecr.us-east-1.amazonaws.com'
+
+    FRONTEND_ECR = '237024526028.dkr.ecr.us-east-1.amazonaws.com/typr-frontend'
+
+    BACKEND_ECR = '237024526028.dkr.ecr.us-east-1.amazonaws.com/typr-backend'
   }
 
   stages {
@@ -48,5 +56,45 @@ pipeline {
       }
     }
 
+    stage('Login to ECR') {
+      steps {
+        sh '''
+          aws ecr get-login-password --region $AWS_REGION | \
+          docker login --username AWS --password-stdin $ECR_REGISTRY
+        '''
+      }
+    }
+
+    stage('Tag frontend image') {
+      steps {
+        sh '''
+          docker tag typr-react-demo/frontend:latest $FRONTEND_ECR:latest
+        '''
+      }
+    }
+
+    stage('Push frontend image') {
+      steps {
+        sh '''
+          docker push $FRONTEND_ECR:latest
+        '''
+      }
+    }
+
+    stage('Tag backend image') {
+      steps {
+        sh '''
+          docker tag typr-react-demo/backend:latest $BACKEND_ECR:latest
+        '''
+      }
+    }
+
+    stage('Push backend image') {
+      steps {
+        sh '''
+          docker push $BACKEND_ECR:latest
+        '''
+      }
+    }
   }
 }
