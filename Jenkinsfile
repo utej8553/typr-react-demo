@@ -11,12 +11,12 @@ pipeline {
 
     stage('Build frontend image'){
       steps {
-        sh 'docker build -t typr-react-demo/frontend .'
+        sh 'docker build -t typr-react-demo/frontend ./frontend'
       }
     }
     stage('Build backend image'){
       steps {
-        sh 'docker build -t typr-react-demo/backend .'
+        sh 'docker build -t typr-react-demo/backend ./backend'
       }
     }
   }
