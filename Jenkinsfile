@@ -9,10 +9,14 @@ pipeline {
       }
     }
 
-    stage('Build check') {
+    stage('Build frontend image'){
       steps {
-        echo 'Pipeline working successfully'
+        sh 'docker build -t typr-react-demo/frontend .'
       }
     }
-  }
+    stage('Build backend image'){
+      steps {
+        sh 'docker build -t typr-react-demo/backend .'
+      }
+    }
 }
