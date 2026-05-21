@@ -1,12 +1,12 @@
 pipeline {
   agent any
-  tools {
-    sonarQube 'sonar-scanner'
-  }
+
   environment {
     SCANNER_HOME = tool 'sonar-scanner'
   }
+
   stages {
+
     stage('Github Checkout') {
       steps {
         git branch: 'main',
@@ -14,7 +14,7 @@ pipeline {
       }
     }
 
-    stage('SnonarQube analysis') {
+    stage('SonarQube analysis') {
       steps {
         withSonarQubeEnv('sonar') {
           sh '''
@@ -24,26 +24,29 @@ pipeline {
       }
     }
 
-    stage('Build frontend image'){
+    stage('Build frontend image') {
       steps {
         sh 'docker build -t typr-react-demo/frontend ./frontend'
       }
     }
-    stage('Build backend image'){
+
+    stage('Build backend image') {
       steps {
         sh 'docker build -t typr-react-demo/backend ./backend'
       }
     }
 
-    stage('Trivy Scan Frontend'){
+    stage('Trivy Scan Frontend') {
       steps {
         sh 'trivy image typr-react-demo/frontend'
       }
     }
-    stage('Trivy Scan Backend'){
+
+    stage('Trivy Scan Backend') {
       steps {
         sh 'trivy image typr-react-demo/backend'
       }
     }
+
   }
 }
