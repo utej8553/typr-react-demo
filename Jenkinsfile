@@ -104,12 +104,12 @@ pipeline {
       }
     }
 
-    stage('Deploy to App server'){
+   stage('Deploy to App server'){
   steps {
-    sh '''
+    sh """
     ssh -o StrictHostKeyChecking=no \
     -i /var/lib/jenkins/demo-key.pem \
-    ubuntu@$APP_SERVER_IP << EOF
+    ubuntu@$APP_SERVER_IP << 'EOF'
 
     cd app
 
@@ -125,7 +125,7 @@ pipeline {
     docker ps
 
     EOF
-    '''
+    """
   }
 }
   }
