@@ -4,9 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import toast from "react-hot-toast";
 import socket from "../socket";
 
-function getProfile() {
-  try { return JSON.parse(localStorage.getItem("typr_profile") || "null"); } catch { return null; }
-}
+import { useAuth } from "../context/AuthContext";
 
 function getInitials(name) {
   return name ? name.slice(0, 2).toUpperCase() : "?";
@@ -23,7 +21,7 @@ export default function Lobby() {
   const { roomCode } = useParams();
   const navigate = useNavigate();
   const navigatingToGame = useRef(false);
-  const profile = getProfile();
+  const { user } = useAuth();
 
   // Fetch existing users
   useEffect(() => {
@@ -38,19 +36,19 @@ export default function Lobby() {
         setUsername(resp.data.username || "");
       } catch (err) {
         // If user not found in room (e.g. page refresh), try to rejoin
-        if (profile) {
+        if (user) {
           try {
             if (!socket.connected) socket.connect();
             await new Promise((res) => setTimeout(res, 500));
             await axios.post("/api/joinroom", {
-              username: profile.username,
+              username: user.username,
               roomCode,
               socketID: socket.id,
-              userId: profile.userId,
+              userId: user.userId,
             });
             const res2 = await axios.get(`/api/${roomCode}/getAllUsers`);
             setUsers(res2.data.users || []);
-            setUsername(profile.username);
+            setUsername(user.username);
           } catch (e) {
             toast.error("Could not rejoin room");
           }

@@ -1,39 +1,13 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import socket from "../socket";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
+import { useAuth } from "../context/AuthContext";
 
 // ─── helpers ────────────────────────────────────────────────
 function getInitials(name) {
   return name ? name.slice(0, 2).toUpperCase() : "?";
-}
-
-function getProfile() {
-  try {
-    return JSON.parse(localStorage.getItem("typr_profile") || "null");
-  } catch {
-    return null;
-  }
-}
-
-function saveProfile(profile) {
-  localStorage.setItem("typr_profile", JSON.stringify(profile));
-}
-
-function createNewProfile(username) {
-  const profile = {
-    userId: crypto.randomUUID(),
-    username,
-    races: 0,
-    totalWpm: 0,
-    maxWpm: 0,
-    totalAccuracy: 0,
-    history: [],
-    createdAt: new Date().toISOString(),
-  };
-  saveProfile(profile);
-  return profile;
 }
 
 function avgNum(total, count) {
@@ -229,20 +203,26 @@ function LeaderboardTab() {
 }
 
 // ─── Tab: Profile ─────────────────────────────────────────────
-function ProfileTab({ profile, onProfileUpdate }) {
+function ProfileTab({ profile, updateUsername, logout }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(profile.username);
+  const [saving, setSaving] = useState(false);
 
-  const avgWpm = avgNum(profile.totalWpm, profile.races);
-  const avgAcc = avgNum(profile.totalAccuracy, profile.races);
+  const avgWpm = avgNum(profile.stats.totalWpm, profile.stats.races);
+  const avgAcc = avgNum(profile.stats.totalAccuracy, profile.stats.races);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!draft.trim()) return toast.error("Username can't be empty");
-    const updated = { ...profile, username: draft.trim() };
-    saveProfile(updated);
-    onProfileUpdate(updated);
-    setEditing(false);
-    toast.success("Profile updated!");
+    setSaving(true);
+    try {
+      await updateUsername(draft.trim());
+      setEditing(false);
+      toast.success("Profile updated!");
+    } catch (err) {
+      toast.error(err.response?.data?.error || "Failed to update profile");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -261,10 +241,11 @@ function ProfileTab({ profile, onProfileUpdate }) {
                   maxLength={20}
                   style={{ flex: 1 }}
                   autoFocus
+                  disabled={saving}
                   id="edit-username-input"
                 />
-                <button className="btn btn-primary btn-sm" onClick={handleSave} id="save-username-btn">Save</button>
-                <button className="btn btn-ghost btn-sm" onClick={() => setEditing(false)}>Cancel</button>
+                <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving} id="save-username-btn">Save</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => setEditing(false)} disabled={saving}>Cancel</button>
               </div>
             ) : (
               <div className="flex items-center gap-2">
@@ -278,6 +259,9 @@ function ProfileTab({ profile, onProfileUpdate }) {
               Member since {new Date(profile.createdAt).toLocaleDateString()}
             </p>
           </div>
+          <div>
+            <button className="btn btn-danger btn-sm" onClick={logout}>Log Out</button>
+          </div>
         </div>
       </div>
 
@@ -288,7 +272,7 @@ function ProfileTab({ profile, onProfileUpdate }) {
         </div>
         <div className="stat-grid">
           <div className="stat-block">
-            <span className="stat-num">{profile.races}</span>
+            <span className="stat-num">{profile.stats.races}</span>
             <span className="stat-lbl">Races</span>
           </div>
           <div className="stat-block">
@@ -296,7 +280,7 @@ function ProfileTab({ profile, onProfileUpdate }) {
             <span className="stat-lbl">Avg WPM</span>
           </div>
           <div className="stat-block">
-            <span className="stat-num" style={{ color: "var(--accent-2)" }}>{profile.maxWpm}</span>
+            <span className="stat-num" style={{ color: "var(--accent-2)" }}>{profile.stats.maxWpm}</span>
             <span className="stat-lbl">Best WPM</span>
           </div>
           <div className="stat-block">
@@ -307,7 +291,7 @@ function ProfileTab({ profile, onProfileUpdate }) {
       </div>
 
       {/* History */}
-      {profile.history.length > 0 && (
+      {profile.history && profile.history.length > 0 && (
         <div>
           <div className="section-header">
             <span className="section-title">Recent Races</span>
@@ -328,86 +312,11 @@ function ProfileTab({ profile, onProfileUpdate }) {
   );
 }
 
-// ─── Setup Screen ─────────────────────────────────────────────
-function SetupScreen({ onComplete }) {
-  const [username, setUsername] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  const handleCreate = (e) => {
-    e.preventDefault();
-    if (!username.trim()) return toast.error("Please enter a username");
-    if (username.trim().length < 2) return toast.error("Username must be at least 2 characters");
-    setLoading(true);
-    const profile = createNewProfile(username.trim());
-    setTimeout(() => {
-      setLoading(false);
-      onComplete(profile);
-      toast.success(`Welcome, ${profile.username}! 🎉`);
-    }, 500);
-  };
-
-  return (
-    <div className="setup-screen">
-      <div className="setup-card">
-        <div className="setup-header">
-          <div style={{ fontSize: "2.5rem", marginBottom: "0.75rem" }}>⌨️</div>
-          <h1>Welcome to Typr</h1>
-          <p>Create your profile to start racing</p>
-        </div>
-
-        <form onSubmit={handleCreate} className="flex flex-col gap-4">
-          <div className="field">
-            <label className="field-label" htmlFor="setup-username">Your Username</label>
-            <input
-              id="setup-username"
-              className="field-input"
-              type="text"
-              placeholder="Enter a cool username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              maxLength={20}
-              autoFocus
-              disabled={loading}
-            />
-          </div>
-
-          {username.trim() && (
-            <div className="flex items-center gap-3 card" style={{ padding: "0.85rem 1rem" }}>
-              <Avatar name={username} size="md" />
-              <div>
-                <div style={{ fontSize: "0.95rem", fontWeight: 600 }}>{username}</div>
-                <div style={{ fontSize: "0.75rem", color: "var(--text-3)" }}>Your profile preview</div>
-              </div>
-            </div>
-          )}
-
-          <button
-            className="btn btn-primary btn-full btn-lg"
-            type="submit"
-            disabled={loading || !username.trim()}
-            id="create-profile-btn"
-          >
-            {loading ? <><span className="spinner" />&nbsp;Creating…</> : "Create Profile & Start Racing →"}
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-}
-
 // ─── Main Dashboard ───────────────────────────────────────────
 export default function LoginPage() {
-  const [profile, setProfile] = useState(null);
-  const [profileLoaded, setProfileLoaded] = useState(false);
+  const { user: profile, updateUsername, logout } = useAuth();
   const [activeTab, setActiveTab] = useState("race");
   const [socketConnected, setSocketConnected] = useState(false);
-
-  // Load profile from localStorage on mount
-  useEffect(() => {
-    const stored = getProfile();
-    setProfile(stored);
-    setProfileLoaded(true);
-  }, []);
 
   // Socket lifecycle
   useEffect(() => {
@@ -430,16 +339,7 @@ export default function LoginPage() {
     };
   }, []);
 
-  const handleProfileCreated = (newProfile) => {
-    setProfile(newProfile);
-  };
-
-  const handleProfileUpdate = (updated) => {
-    setProfile(updated);
-  };
-
-  if (!profileLoaded) return null;
-  if (!profile) return <SetupScreen onComplete={handleProfileCreated} />;
+  if (!profile) return null;
 
   return (
     <div className="dashboard">
@@ -493,7 +393,7 @@ export default function LoginPage() {
         )}
         {activeTab === "leaderboard" && <LeaderboardTab />}
         {activeTab === "profile" && (
-          <ProfileTab profile={profile} onProfileUpdate={handleProfileUpdate} />
+          <ProfileTab profile={profile} updateUsername={updateUsername} logout={logout} />
         )}
       </div>
     </div>

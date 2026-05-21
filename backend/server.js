@@ -56,8 +56,18 @@ app.set("io", io);
 // Routes
 const loginControllers = require("./controllers/loginControllers");
 const roomControllers = require("./controllers/roomControllers");
+const authControllers = require("./controllers/authControllers");
+const authMiddleware = require("./middleware/auth");
 const Room = require("./models/Room");
 const Leaderboard = require("./models/Leaderboard");
+const User = require("./models/User");
+
+// Auth routes
+app.post("/api/auth/register", authControllers.register);
+app.post("/api/auth/login", authControllers.login);
+app.get("/api/auth/profile", authMiddleware, authControllers.getProfile);
+app.post("/api/auth/update-stats", authMiddleware, authControllers.updateStats);
+app.patch("/api/auth/profile", authMiddleware, authControllers.updateProfile);
 
 app.post("/api/joinroom", loginControllers.joinRoom);
 app.post("/api/createroom", loginControllers.createRoom);
@@ -76,8 +86,28 @@ app.get("/api/leaderboard", async (req, res) => {
   }
 });
 
+const jwt = require("jsonwebtoken");
+const JWT_SECRET = process.env.JWT_SECRET || "typr_dev_secret_change_in_prod";
+
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token;
+  if (!token) {
+    console.log("Socket connection rejected: No token provided");
+    return next(new Error("Authentication error: No token provided"));
+  }
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    socket.userId = payload.userId;
+    socket.username = payload.username;
+    next();
+  } catch (err) {
+    console.log("Socket connection rejected: Invalid token");
+    next(new Error("Authentication error: Invalid token"));
+  }
+});
+
 io.on("connection", (socket) => {
-  console.log("A user connected:", socket.id);
+  console.log("A user connected:", socket.id, "Username:", socket.username);
 
   socket.on("join-room", (roomCode) => {
     try {
@@ -204,6 +234,9 @@ io.on("connection", (socket) => {
         // Write to global leaderboard
         if (wpm > 0) {
           await Leaderboard.create({ username, wpm, accuracy });
+          if (socket.userId) {
+            await User.addRaceResult(socket.userId, wpm, accuracy);
+          }
         }
 
         const allFinished = room.users.every((u) => u.finished);

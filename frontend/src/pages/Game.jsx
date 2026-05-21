@@ -4,30 +4,7 @@ import toast from "react-hot-toast";
 import { useNavigate, useParams } from "react-router-dom";
 import socket from "../socket";
 
-function getProfile() {
-  try { return JSON.parse(localStorage.getItem("typr_profile") || "null"); } catch { return null; }
-}
-
-function saveProfile(profile) {
-  localStorage.setItem("typr_profile", JSON.stringify(profile));
-}
-
-function recordRace(wpm, accuracy) {
-  const profile = getProfile();
-  if (!profile) return;
-  const updated = {
-    ...profile,
-    races: profile.races + 1,
-    totalWpm: profile.totalWpm + wpm,
-    maxWpm: Math.max(profile.maxWpm, wpm),
-    totalAccuracy: profile.totalAccuracy + accuracy,
-    history: [
-      ...profile.history,
-      { date: new Date().toISOString(), wpm, accuracy },
-    ].slice(-50),
-  };
-  saveProfile(updated);
-}
+import { useAuth } from "../context/AuthContext";
 
 export default function Game() {
   const [loading, setLoading] = useState(true);
@@ -48,7 +25,7 @@ export default function Game() {
   const caretRef = useRef(null);
   const navigate = useNavigate();
   const navigatingAway = useRef(false);
-  const profile = getProfile();
+  const { user, refreshProfile } = useAuth();
 
   // Countdown and Timer
   const [countdown, setCountdown] = useState(5);
@@ -108,7 +85,7 @@ export default function Game() {
         });
         setUsername(resp.data.username);
       } catch {
-        if (profile) setUsername(profile.username);
+        if (user) setUsername(user.username);
       }
     } catch (err) {
       setError(err.response?.data?.error || err.message || "Error loading game");
@@ -203,8 +180,10 @@ export default function Game() {
       socket.emit("user-completed", { msg: `${username} finished typing!`, roomCode });
       socket.emit("submit-results", { username, roomCode, wpm: finalWPM, accuracy: finalAcc });
 
-      // Record to local profile
-      recordRace(finalWPM, finalAcc);
+      // Update DB and context
+      axios.post("/api/auth/update-stats", { wpm: finalWPM, accuracy: finalAcc })
+        .then(() => refreshProfile())
+        .catch(console.error);
 
       setFinished(true);
       setHasEmittedComplete(true);
