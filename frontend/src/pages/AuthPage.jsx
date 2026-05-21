@@ -56,7 +56,7 @@ export default function AuthPage() {
       <div className="setup-card" style={{ maxWidth: '400px' }}>
         <div className="setup-header">
           <div style={{ fontSize: "2.5rem", marginBottom: "0.75rem" }}>⌨️</div>
-          <h1>{isLogin ? "Welcome Back" : "Join Typr"}</h1>
+          <h1>{isLogin ? "Hi!, Welcome Back" : "Lets Join Typr"}</h1>
           <p>{isLogin ? "Log in to your account" : "Create an account to track your stats"}</p>
         </div>
 
