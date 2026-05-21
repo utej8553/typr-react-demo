@@ -15,13 +15,15 @@ const MONGODB_URI =
 
 mongoose
   .connect(MONGODB_URI, {
-    serverSelectionTimeoutMS: 2000, // Fail fast if no local MongoDB is running
+    serverSelectionTimeoutMS: 2000,
   })
   .then(() => {
     console.log("Connected to MongoDB successfully");
   })
   .catch((error) => {
-    console.warn("MongoDB connection failed. Falling back to local in-memory store for development.");
+    console.warn(
+      "MongoDB connection failed. Falling back to local in-memory store for development."
+    );
   });
 
 // Handle MongoDB connection events
@@ -30,7 +32,6 @@ mongoose.connection.on("disconnected", () => {
 });
 
 mongoose.connection.on("error", (error) => {
-  // Suppress verbose network/connection errors in the console when offline or using fallback
   if (mongoose.connection.readyState !== 1) {
     return;
   }
@@ -56,11 +57,24 @@ app.set("io", io);
 const loginControllers = require("./controllers/loginControllers");
 const roomControllers = require("./controllers/roomControllers");
 const Room = require("./models/Room");
+const Leaderboard = require("./models/Leaderboard");
 
 app.post("/api/joinroom", loginControllers.joinRoom);
 app.post("/api/createroom", loginControllers.createRoom);
 app.get("/api/:roomCode/getAllUsers", roomControllers.getAllUsers);
 app.get("/api/:roomCode/details", roomControllers.roomDetails);
+
+// Global leaderboard endpoint
+app.get("/api/leaderboard", async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 20;
+    const entries = await Leaderboard.getTop(limit);
+    return res.status(200).json({ success: true, leaderboard: entries });
+  } catch (err) {
+    console.error("Error fetching leaderboard:", err);
+    return res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
 
 io.on("connection", (socket) => {
   console.log("A user connected:", socket.id);
@@ -79,11 +93,13 @@ io.on("connection", (socket) => {
     try {
       const room = await Room.findOne({ "users.socketId": socket.id });
       if (room) {
-        const disconnectedUser = room.users.find(u => u.socketId === socket.id);
+        const disconnectedUser = room.users.find(
+          (u) => u.socketId === socket.id
+        );
         const username = disconnectedUser ? disconnectedUser.username : "";
-        
-        room.users = room.users.filter(u => u.socketId !== socket.id);
-        
+
+        room.users = room.users.filter((u) => u.socketId !== socket.id);
+
         if (room.users.length === 0) {
           await Room.deleteOne({ roomCode: room.roomCode });
           console.log(`Room ${room.roomCode} deleted as it became empty.`);
@@ -91,7 +107,6 @@ io.on("connection", (socket) => {
           await room.save();
           console.log(`User ${username} removed from Room ${room.roomCode}`);
 
-          // Emit updated list
           const usersList = room.users.map((u) => ({
             username: u.username,
             ready: u.ready,
@@ -103,10 +118,10 @@ io.on("connection", (socket) => {
           }
 
           // If the game was running, check if remaining users are all finished
-          if (room.status === 'game') {
+          if (room.status === "game") {
             const allFinished = room.users.every((u) => u.finished);
             if (allFinished) {
-              room.status = 'results';
+              room.status = "results";
               await room.save();
               io.to(room.roomCode).emit("game-over", room.results);
             }
@@ -131,9 +146,10 @@ io.on("connection", (socket) => {
         await room.save();
         io.to(roomCode).emit("user-list-updated", usersList);
 
-        const allReady = room.users.length > 0 && room.users.every((u) => u.ready);
+        const allReady =
+          room.users.length > 0 && room.users.every((u) => u.ready);
         if (allReady) {
-          room.status = 'game';
+          room.status = "game";
           await room.save();
           io.to(roomCode).emit("start-countdown");
         }
@@ -185,9 +201,14 @@ io.on("connection", (socket) => {
 
         await room.save();
 
+        // Write to global leaderboard
+        if (wpm > 0) {
+          await Leaderboard.create({ username, wpm, accuracy });
+        }
+
         const allFinished = room.users.every((u) => u.finished);
         if (allFinished) {
-          room.status = 'results';
+          room.status = "results";
           await room.save();
           io.to(roomCode).emit("game-over", room.results);
         } else {
@@ -196,7 +217,7 @@ io.on("connection", (socket) => {
             completion: u.completion,
             accuracy: u.accuracy,
             wpm: u.wpm,
-            finished: u.finished
+            finished: u.finished,
           }));
           io.to(roomCode).emit("recieve-game-details", updatedUsers);
         }
@@ -210,9 +231,9 @@ io.on("connection", (socket) => {
     try {
       const room = await Room.findOne({ roomCode });
       if (room) {
-        room.status = 'lobby';
+        room.status = "lobby";
         room.results = [];
-        
+
         room.users.forEach((u) => {
           u.ready = false;
           u.completion = 0;
@@ -230,6 +251,50 @@ io.on("connection", (socket) => {
       }
     } catch (e) {
       console.error("play-again error:", e);
+    }
+  });
+
+  socket.on("leave-room", async (roomCode) => {
+    try {
+      console.log(`Socket ${socket.id} explicitly leaving room ${roomCode}`);
+      const room = await Room.findOne({ roomCode });
+      if (room) {
+        const leavingUser = room.users.find((u) => u.socketId === socket.id);
+        const username = leavingUser ? leavingUser.username : "";
+
+        room.users = room.users.filter((u) => u.socketId !== socket.id);
+
+        if (room.users.length === 0) {
+          await Room.deleteOne({ roomCode: room.roomCode });
+          console.log(`Room ${room.roomCode} deleted as it became empty.`);
+        } else {
+          await room.save();
+          console.log(`User ${username} removed from Room ${room.roomCode}`);
+
+          const usersList = room.users.map((u) => ({
+            username: u.username,
+            ready: u.ready,
+          }));
+          io.to(room.roomCode).emit("user-list-updated", usersList);
+
+          if (username) {
+            io.to(room.roomCode).emit("player-left", username);
+          }
+
+          // If the game was running, check if remaining users are all finished
+          if (room.status === "game") {
+            const allFinished = room.users.every((u) => u.finished);
+            if (allFinished) {
+              room.status = "results";
+              await room.save();
+              io.to(room.roomCode).emit("game-over", room.results);
+            }
+          }
+        }
+      }
+      socket.leave(roomCode);
+    } catch (e) {
+      console.error("leave-room error:", e);
     }
   });
 
@@ -257,7 +322,7 @@ app.get("/api/getUser", async (req, res) => {
       return res.status(404).json({ error: "Room not found" });
     }
 
-    const user = room.users.find(u => u.socketId === socketID);
+    const user = room.users.find((u) => u.socketId === socketID);
     if (user) {
       return res.status(200).json({ username: user.username });
     }
@@ -276,4 +341,3 @@ server.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
   console.log(path.join(__dirname, "../frontend/dist"));
 });
-

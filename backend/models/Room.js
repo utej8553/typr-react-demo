@@ -6,13 +6,14 @@ const RoomSchema = new Schema({
   users: [
     {
       username: { type: String, required: true },
+      userId: { type: String, required: true },
       socketId: { type: String, required: true },
       ready: { type: Boolean, default: false },
       completion: { type: Number, default: 0 },
       accuracy: { type: Number, default: 100 },
       wpm: { type: Number, default: 0 },
-      finished: { type: Boolean, default: false }
-    }
+      finished: { type: Boolean, default: false },
+    },
   ],
   paragraph: { type: String },
   status: { type: String, enum: ["lobby", "game", "results"], default: "lobby" },
@@ -20,9 +21,9 @@ const RoomSchema = new Schema({
     {
       username: { type: String, required: true },
       wpm: { type: Number },
-      accuracy: { type: Number }
-    }
-  ]
+      accuracy: { type: Number },
+    },
+  ],
 });
 
 const MongooseRoomModel = mongoose.model("Room", RoomSchema);
@@ -33,21 +34,22 @@ const memoryStore = new Map();
 class RoomMockDocument {
   constructor(data) {
     this.roomCode = data.roomCode;
-    this.users = (data.users || []).map(u => ({
+    this.users = (data.users || []).map((u) => ({
       username: u.username,
+      userId: u.userId || "",
       socketId: u.socketId,
       ready: u.ready ?? false,
       completion: u.completion ?? 0,
       accuracy: u.accuracy ?? 100,
       wpm: u.wpm ?? 0,
-      finished: u.finished ?? false
+      finished: u.finished ?? false,
     }));
     this.paragraph = data.paragraph || "";
     this.status = data.status || "lobby";
-    this.results = (data.results || []).map(r => ({
+    this.results = (data.results || []).map((r) => ({
       username: r.username,
       wpm: r.wpm ?? 0,
-      accuracy: r.accuracy ?? 100
+      accuracy: r.accuracy ?? 100,
     }));
   }
 
@@ -57,7 +59,7 @@ class RoomMockDocument {
       users: this.users,
       paragraph: this.paragraph,
       status: this.status,
-      results: this.results
+      results: this.results,
     });
     return this;
   }
@@ -68,7 +70,7 @@ class RoomMockDocument {
       users: this.users,
       paragraph: this.paragraph,
       status: this.status,
-      results: this.results
+      results: this.results,
     };
   }
 }
@@ -87,17 +89,16 @@ RoomProxy.findOne = async function (query) {
   if (mongoose.connection.readyState === 1) {
     return await MongooseRoomModel.findOne(query);
   } else {
-    // In-memory query matcher supporting roomCode, users.socketId, and users.username
     for (const [code, room] of memoryStore.entries()) {
       let match = true;
       for (const [key, val] of Object.entries(query)) {
         if (key === "roomCode" && room.roomCode !== val) {
           match = false;
         } else if (key === "users.socketId") {
-          const hasSocket = room.users.some(u => u.socketId === val);
+          const hasSocket = room.users.some((u) => u.socketId === val);
           if (!hasSocket) match = false;
         } else if (key === "users.username") {
-          const hasUsername = room.users.some(u => u.username === val);
+          const hasUsername = room.users.some((u) => u.username === val);
           if (!hasUsername) match = false;
         }
       }
@@ -133,4 +134,3 @@ RoomProxy.deleteOne = async function (query) {
 };
 
 module.exports = RoomProxy;
-
